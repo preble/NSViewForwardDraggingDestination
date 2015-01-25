@@ -18,39 +18,46 @@ static void *DraggingDelegateKey = &DraggingDelegateKey;
     // Store the dragging destination to forward to:
     objc_setAssociatedObject(self, DraggingDelegateKey, draggingDestination, OBJC_ASSOCIATION_ASSIGN);
     
-    Class class = self.class;
-    
-    // Walk the methods of NSDraggingDestination:
-    unsigned int count = 0;
-    struct objc_method_description *protocolMethods = protocol_copyMethodDescriptionList(@protocol(NSDraggingDestination), NO, YES, &count);
-    for (int i = 0; i < count; i++) {
-        // For each protocol method, swizzle it with the apFwdDragDest_ analog,
-        // each of which will attempt to call the delegate first.
-        
-        SEL originalSelector = protocolMethods[i].name;
-        SEL swizzledSelector = NSSelectorFromString([@"apFwdDragDest_" stringByAppendingString:NSStringFromSelector(originalSelector)]);
+    [self.class ap_swizzleToForwardDraggingDestinationIfNeeded];
+}
 
-        // originalMethod will be nil in cases where NSView doesn't implement that method.
-        Method originalMethod = class_getInstanceMethod(class, originalSelector);
-        Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
-
-        BOOL didAddMethod = class_addMethod(class,
-                                            originalSelector,
-                                            method_getImplementation(swizzledMethod),
-                                            method_getTypeEncoding(swizzledMethod));
++ (void)ap_swizzleToForwardDraggingDestinationIfNeeded {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{ // Only swizzle it once!
+        const Class class = self.class;
         
-        if (didAddMethod) {
-            class_replaceMethod(class,
-                                swizzledSelector,
-                                method_getImplementation(originalMethod),
-                                method_getTypeEncoding(originalMethod));
-        } else {
-            method_exchangeImplementations(originalMethod, swizzledMethod);
+        // Walk the methods of NSDraggingDestination:
+        unsigned int count = 0;
+        struct objc_method_description *protocolMethods = protocol_copyMethodDescriptionList(@protocol(NSDraggingDestination), NO, YES, &count);
+        for (int i = 0; i < count; i++) {
+            // For each protocol method, swizzle it with the apFwdDragDest_ analog,
+            // each of which will attempt to call the delegate first.
+            
+            SEL originalSelector = protocolMethods[i].name;
+            SEL swizzledSelector = NSSelectorFromString([@"apFwdDragDest_" stringByAppendingString:NSStringFromSelector(originalSelector)]);
+            
+            // originalMethod will be nil in cases where NSView doesn't implement that method.
+            Method originalMethod = class_getInstanceMethod(class, originalSelector);
+            Method swizzledMethod = class_getInstanceMethod(class, swizzledSelector);
+            
+            BOOL didAddMethod = class_addMethod(class,
+                                                originalSelector,
+                                                method_getImplementation(swizzledMethod),
+                                                method_getTypeEncoding(swizzledMethod));
+            
+            if (didAddMethod) {
+                class_replaceMethod(class,
+                                    swizzledSelector,
+                                    method_getImplementation(originalMethod),
+                                    method_getTypeEncoding(originalMethod));
+            } else {
+                method_exchangeImplementations(originalMethod, swizzledMethod);
+            }
         }
-    }
-    if (protocolMethods != nil) {
-        free(protocolMethods);
-    }
+        if (protocolMethods != nil) {
+            free(protocolMethods);
+        }
+    });
 }
 
 #define DRAGGING_DELEGATE id<NSDraggingDestination> delegate = objc_getAssociatedObject(self, DraggingDelegateKey)
